@@ -11,6 +11,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Product } from './entities/product.entity';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
+import { validate as isUUID } from 'uuid';
 
 @Injectable()
 export class ProductsService {
@@ -42,16 +43,41 @@ export class ProductsService {
   }
 
   //
-  async findOne(id: string) {
-    const product = await this.productRepository.findOneBy({ id });
+  async findOne(term: string) {
+    let product: Product;
+    if (isUUID(term)) {
+      product = await this.productRepository.findOneBy({ id: term });
+    } else {
+      // product = await this.productRepository.findOneBy({ slug: term });
+      const querybuilder = this.productRepository.createQueryBuilder();
+      product = await querybuilder
+        .where('UPPER(title) = :title or slug = :slug', {
+          title: term.toUpperCase(),
+          slug: term.toLocaleLowerCase(),
+        })
+        .getOne();
+    }
+    // const product = await this.productRepository.findOneBy({ term });
     if (!product) {
-      throw new NotFoundException(`Product whith id: ${id} not found`);
+      throw new NotFoundException(`Product whith term: ${term} not found`);
     }
     return product;
   }
 
-  update(id: number, updateProductDto: UpdateProductDto) {
-    return `This action updates a #${id} product`;
+  async update(id: string, updateProductDto: UpdateProductDto) {
+    const product = await this.productRepository.preload({
+      id: id,
+      ...updateProductDto,
+    });
+    if (!product) {
+      throw new NotFoundException(`Product #${id} not found`);
+    }
+    try {
+      await this.productRepository.save(product);
+      return product;
+    } catch (error) {
+      this.handleDBExceptions(error);
+    }
   }
 
   async remove(id: string) {
